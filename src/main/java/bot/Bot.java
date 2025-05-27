@@ -1,25 +1,26 @@
+package bot;
+
+import db.UsersRepository;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
-import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
-import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import org.yaml.snakeyaml.Yaml;
 
-
 import java.io.InputStream;
-import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 
 public class Bot extends TelegramLongPollingBot {
 
     private String botToken;
     private String botUsername;
-    protected Long selfId;
+    HashMap<Long, Integer> userMessages = new HashMap<>();
+    private UsersRepository usersRepository = new UsersRepository();
 
 
     public Bot() {
         loadConfig();
+        usersRepository.initialiseDbConnection();
     }
-
 
     private void loadConfig() {
         Yaml yaml = new Yaml();
@@ -33,37 +34,38 @@ public class Bot extends TelegramLongPollingBot {
         }
     }
 
-
     @Override
     public void onUpdateReceived(Update update) {
-        var msg = update.getMessage();
-        var user = msg.getFrom();
-        selfId = user.getId();
-        System.out.println("Registering user: " + user.getId());
-
-        System.out.println(user.getFirstName() + " wrote " + msg.getText());
+        registerIncrementMessages(update);
     }
 
-    public void sendText(Long who, String what){
-        SendMessage sm = SendMessage.builder()
-                .chatId(who.toString()) //Who are we sending a message to
-                .text(what).build();    //Message content
-        try {
-            execute(sm);                        //Actually sending the message
-        } catch (TelegramApiException e) {
-            throw new RuntimeException(e);      //Any error will be printed here
+    public void registerIncrementMessages(Update update) {
+        var msg = update.getMessage();
+        var user = msg.getFrom();
+        Long userId = user.getId();
+        if (userMessages.containsKey(userId)) {
+            userMessages.put(userId, userMessages.get(userId) + 1);
+            usersRepository.updateUserMessageCount(userId, userMessages.get(userId));
+        }
+        if (!userMessages.containsKey(userId)) {
+            userMessages.put(userId, 1);
+            System.out.println("New user registered: " + user.getId());
+            usersRepository.insertNewUser(userId, user.getUserName());
         }
     }
 
     @Override
     public String getBotToken() {
         return botToken;
-//        return "7373436976:AAEEbIWqvcvrRuQpHQl2vzbJkoynwKkyrb8";
     }
 
     @Override
     public String getBotUsername() {
         return botUsername;
-//        return "weekly_message_counter_bot";
     }
+
+
+
+
+
 }

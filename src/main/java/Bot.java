@@ -43,13 +43,13 @@ public class Bot extends TelegramLongPollingBot {
         Long userId = user.getId();
         if (userMessages.containsKey(userId)) {
             userMessages.put(userId, userMessages.get(userId) + 1);
+            updateUserMessageCount(userId, userMessages.get(userId));
         }
         if (!userMessages.containsKey(userId)) {
             userMessages.put(userId, 1);
             System.out.println("New user registered: " + user.getId());
             insertNewUser(userId, user.getUserName());
         }
-        System.out.println("User: " + userId + ", messages: " + userMessages.get(userId));
     }
 
     @Override
@@ -84,6 +84,20 @@ public class Bot extends TelegramLongPollingBot {
             pstmt.setLong(4, System.currentTimeMillis());
             pstmt.executeUpdate();
             System.out.println("Inserted new user: " + userId);
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public void updateUserMessageCount(Long userId, int messageCount) {
+        try {
+            String sql = "UPDATE users SET message_count = ?, last_message = ? WHERE user_id = ?";
+            var pstmt = conn.prepareStatement(sql);
+            pstmt.setInt(1, messageCount);
+            pstmt.setLong(2, System.currentTimeMillis());
+            pstmt.setLong(3, userId);
+            pstmt.executeUpdate();
+            System.out.println("Updated user message count: " + userId);
         } catch (SQLException e) {
             throw new RuntimeException(e);
         }

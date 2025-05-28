@@ -82,7 +82,7 @@ public class Bot extends TelegramLongPollingBot {
             usersRepository.insertNewUser(userId, user.getUserName());
         }
     }
-    
+
     public void updateUserCache(Update update) {
         var msg = update.getMessage();
         var user = msg.getFrom();
@@ -94,17 +94,18 @@ public class Bot extends TelegramLongPollingBot {
             // If not in cache, load user data from DB
             if (usersRepository.isUserRegistered(id)) {
                 int messageCount = usersRepository.getMessageCount(id);
-                return new UserData(userId, username, messageCount, usersRepository.getFirstMessage(userId), usersRepository.getLastMessage(userId)); // Existing user
+                return new UserData(userId, username, messageCount, usersRepository.getFirstMessage(userId), System.currentTimeMillis());
             } else {
                 // New user registration
                 usersRepository.insertNewUser(id, user.getUserName());
-                return new UserData(userId, username, 1, System.currentTimeMillis(), System.currentTimeMillis()); // Existing user
+                return new UserData(userId, username, 0, System.currentTimeMillis(), System.currentTimeMillis());
             }
         });
 
         // Update the user's message count in the cache
         UserData userData = userCache.get(userId);
-        userData.incrementMessageCount(); // Increment the in-memory count
+        userData.incrementMessageCount();
+        userData.setLastMessage(System.currentTimeMillis());// Increment the in-memory count
         logger.debug("Updated message count for user {}, messages in cache: {}, last message timestamp: {}", userId, userData.getMessageCount(), userData.getLastMessage());
     }
 

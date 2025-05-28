@@ -2,8 +2,9 @@ package bot;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
+import lombok.Setter;
 
-@AllArgsConstructor @Getter
+@AllArgsConstructor @Getter @Setter
 public class UserData {
     private Long id;
     private String username;

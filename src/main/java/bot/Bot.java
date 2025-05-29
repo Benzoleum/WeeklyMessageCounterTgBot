@@ -4,19 +4,20 @@ import db.UsersRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import org.yaml.snakeyaml.Yaml;
 
 import java.io.InputStream;
+import java.time.DayOfWeek;
 import java.time.Duration;
-import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
+import java.time.temporal.TemporalAdjusters;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 public class Bot extends TelegramLongPollingBot {
@@ -24,7 +25,7 @@ public class Bot extends TelegramLongPollingBot {
     private static final Logger logger = LoggerFactory.getLogger(Bot.class);
     private String botToken;
     private String botUsername;
-    HashMap<Long, Integer> userMessages = new HashMap<>();
+    private long chatId = 0;
     ConcurrentHashMap<Long, UserData> userCache = new ConcurrentHashMap<>();
     private final UsersRepository usersRepository = new UsersRepository();
 
@@ -49,46 +50,28 @@ public class Bot extends TelegramLongPollingBot {
 
     @Override
     public void onUpdateReceived(Update update) {
-        updateUserCache(update);
-    }
-
-    public void registerIncrementMessages(Update update) {
-        var msg = update.getMessage();
-        var user = msg.getFrom();
-        Long userId = user.getId();
-
-        // Check if the user is registered in the database
-        if (usersRepository.isUserRegistered(userId)) {
-            // Load user messages into memory if not already present
-            userMessages.putIfAbsent(userId, usersRepository.getMessageCount(userId));
-
-            // Increment the message count
-            int updatedMessageCount = userMessages.get(userId) + 1;
-            userMessages.put(userId, updatedMessageCount);
-
-            logger.debug("User messages in the map: {}", updatedMessageCount);
-            logger.debug("Message count incremented for user: {}", userId);
-
-            // Update the message count in the database
-            usersRepository.updateUserMessageCount(userId, updatedMessageCount, System.currentTimeMillis());
-
-        } else {
-            // Register new user
-            userMessages.put(userId, 1);
-            logger.debug("New user registered: {}", userId);
-            logger.debug("User map updated: {}", userId);
-
-            // Insert the new user into the database
-            usersRepository.insertNewUser(userId, user.getUserName());
-        }
-    }
-
-    public void updateUserCache(Update update) {
         var msg = update.getMessage();
         var user = msg.getFrom();
         Long userId = user.getId();
         String username = user.getUserName();
 
+        if (chatId == 0) {
+            chatId = update.getMessage().getChatId();
+            dateTimeCheckerScheduler();
+        }
+        if (!userCache.containsKey(update.getMessage().getFrom().getId())) {
+            updateUserCache(userId, username);
+        } else {
+            // Update the user's message count in the cache
+            UserData userData = userCache.get(userId);
+            userData.incrementMessageCount();
+            userData.setLastMessage(System.currentTimeMillis());// Increment the in-memory count
+            logger.debug("Updated message count for user {}, messages in cache: {}, last message timestamp: {}", userId, userData.getMessageCount(), userData.getLastMessage());
+
+        }
+    }
+
+    public void updateUserCache(Long userId, String username) {
         // Check if the user is in the cache
         userCache.computeIfAbsent(userId, id -> {
             // If not in cache, load user data from DB
@@ -97,35 +80,12 @@ public class Bot extends TelegramLongPollingBot {
                 return new UserData(userId, username, messageCount, usersRepository.getFirstMessage(userId), System.currentTimeMillis());
             } else {
                 // New user registration
-                usersRepository.insertNewUser(id, user.getUserName());
+                usersRepository.insertNewUser(id, username);
                 return new UserData(userId, username, 0, System.currentTimeMillis(), System.currentTimeMillis());
             }
         });
-
-        // Update the user's message count in the cache
-        UserData userData = userCache.get(userId);
-        userData.incrementMessageCount();
-        userData.setLastMessage(System.currentTimeMillis());// Increment the in-memory count
-        logger.debug("Updated message count for user {}, messages in cache: {}, last message timestamp: {}", userId, userData.getMessageCount(), userData.getLastMessage());
     }
 
-    public void calculateWeeklyMessageCount(long firstMessage, long lastMessage) {
-        // Convert timestamp to LocalDateTime
-        LocalDateTime dateTime1 = Instant.ofEpochMilli(firstMessage).atZone(ZoneId.systemDefault()).toLocalDateTime();
-        LocalDateTime dateTime2 = Instant.ofEpochMilli(lastMessage).atZone(ZoneId.systemDefault()).toLocalDateTime();
-
-        // Format the LocalDateTime to a readable string
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-        String readableDate1 = dateTime1.format(formatter);
-        String readableDate2 = dateTime2.format(formatter);
-
-        Duration duration = Duration.between(dateTime1, dateTime2);
-
-        logger.debug("Readable Date: " + readableDate1);
-        logger.debug("Readable Date: " + readableDate2);
-        logger.info("Duration in days: " + duration.toDays());
-        logger.info("Duration in hours: " + duration.toHours());
-    }
 
     @Override
     public String getBotToken() {
@@ -146,4 +106,66 @@ public class Bot extends TelegramLongPollingBot {
             });
         }, 0, 5, TimeUnit.MINUTES); // Sync every 5 minutes
     }
+
+    private void resetAllData() {
+        for (UserData userData : userCache.values()) {
+            userData.setMessageCount(0);
+            userData.setFirstMessage(0);
+            userData.setLastMessage(0);
+        }
+    }
+
+    public void dateTimeCheckerScheduler() {
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+
+        // Scheduling a repeating task
+        Runnable task = () -> {
+            LocalDateTime now = LocalDateTime.now();
+            DayOfWeek today = now.getDayOfWeek();
+
+            // Run task logic for Sunday at 23:59
+            try {
+                SendMessage message = new SendMessage();
+                message.setChatId(chatId);
+                message.setText("В Лондоне Воскресенье 23:59. Выбираем трупа...");
+                execute(message);
+                StringBuilder sb = new StringBuilder();
+
+                int max = Integer.MAX_VALUE;
+                long lostId = 0;
+
+                for (UserData userData : userCache.values()) {
+                    if (userData.getMessageCount() < max) {
+                        max = userData.getMessageCount();
+                        lostId = userData.getId();
+                    }
+                    sb.append(userData.getUsername()).append(" написал ").append(userData.getMessageCount()).append(" сообщений за неделю.\n");
+                }
+                message.setText(sb.toString());
+                execute(message);
+                message.setText(userCache.get(lostId).getUsername() + " написал меньше всех. " + userCache.get(lostId).getUsername() + "- труп недели. Поздравляем.");
+                execute(message);
+                resetAllData();
+                logger.info("All user message counts refreshed");
+            } catch (TelegramApiException e) {
+                logger.error("Failed to send the message to chat", e);
+                throw new RuntimeException(e);
+            }
+        };
+
+        long initialDelay = getDelayUntilNextSundayMidnight(); // Calculate delay
+        scheduler.schedule(task, initialDelay, TimeUnit.MILLISECONDS);
+        logger.debug("Task scheduled for execution after {} ms", initialDelay);
+    }
+
+    private static long getDelayUntilNextSundayMidnight() {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime nextSundayMidnight = now.with(TemporalAdjusters.nextOrSame(DayOfWeek.THURSDAY))
+                .withHour(23)
+                .withMinute(07)
+                .withSecond(0)
+                .withNano(0);
+        return Duration.between(now, nextSundayMidnight).toMillis();
+    }
+
 }

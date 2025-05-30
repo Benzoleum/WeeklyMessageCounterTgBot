@@ -133,7 +133,7 @@ public class Bot extends TelegramLongPollingBot {
         try {
             SendMessage message = new SendMessage();
             message.setChatId(chatId);
-            message.setText("В Лондоне Воскресенье 23:59. Выбираю трупа...");
+            message.setText("В Лондоне Воскресенье 16:00. Выбираю трупа...");
             execute(message);
             StringBuilder sb = new StringBuilder();
 
@@ -169,13 +169,12 @@ public class Bot extends TelegramLongPollingBot {
 
         long initialDelay = getDelayUntilNextSundayMidnight(); // Calculate delay
         scheduler.schedule(task, initialDelay, TimeUnit.MILLISECONDS);
-        logger.debug("Task scheduled for execution after {} ms", initialDelay);
+        logger.debug("Task scheduled for execution in {} ms", initialDelay);
     }
 
     private static long getDelayUntilNextSundayMidnight() {
         LocalDateTime now = LocalDateTime.now();
-        LocalDateTime nextSundayMidnight = now.with(TemporalAdjusters.nextOrSame(DayOfWeek.THURSDAY)).withHour(23).withMinute(07).withSecond(0).withNano(0);
+        LocalDateTime nextSundayMidnight = now.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY)).withHour(16).withMinute(0).withSecond(0).withNano(0);
         return Duration.between(now, nextSundayMidnight).toMillis();
     }
-
 }

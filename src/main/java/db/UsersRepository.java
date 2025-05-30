@@ -2,31 +2,42 @@ package db;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.yaml.snakeyaml.Yaml;
 
+import java.io.InputStream;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.Map;
 
 public class UsersRepository {
     Connection conn;
     private static final Logger logger = LoggerFactory.getLogger(UsersRepository.class);
 
     public void initialiseDbConnection() {
-        String url = "jdbc:sqlite:src/main/resources/users.db"; // Path to SQLite database
-        try {
+        Yaml yaml = new Yaml();
+        String url;
+        try (InputStream inputStream = getClass().getClassLoader().getResourceAsStream("config.yaml")) {
+            Map<String, Map<String, String>> config = yaml.load(inputStream);
+            String dbFile = config.get("db").get("url");
+            url = "jdbc:sqlite:" + dbFile;
+
             conn = DriverManager.getConnection(url);
             if (conn != null) {
                 logger.info("DB connection established");
+            } else {
+                logger.error("Failed to establish DB connection");
+                throw new RuntimeException("Failed to establish DB connection");
             }
-        } catch (SQLException e) {
-            logger.error("Failed to establish DB connection", e);
+        } catch (Exception e) {
+            logger.error("An error occurred when connecting to the DB", e);
+            throw new RuntimeException(e);
         }
     }
 
     public boolean isUserRegistered(Long userId) {
         try {
-            String sql = "SELECT * FROM users WHERE user_id = ?";
-            var pstmt = conn.prepareStatement(sql);
+            var pstmt = conn.prepareStatement(DbQueries.CHECK_USER_REGISTERED);
             pstmt.setLong(1, userId);
             var rs = pstmt.executeQuery();
             return rs.next();
@@ -38,8 +49,7 @@ public class UsersRepository {
 
     public void insertNewUser(Long userId, String username) {
         try {
-            String sql = "INSERT INTO users (user_id, username, message_count, first_message, last_message) VALUES (?, ?, ?, ?, ?)";
-            var pstmt = conn.prepareStatement(sql);
+            var pstmt = conn.prepareStatement(DbQueries.REGISTER_NEW_USER);
             pstmt.setLong(1, userId);
             pstmt.setString(2, username);
             pstmt.setInt(3, 0);
@@ -48,20 +58,21 @@ public class UsersRepository {
             pstmt.executeUpdate();
             logger.info("Inserted new user: " + userId);
         } catch (SQLException e) {
+            logger.error("Failed to insert new user: " + userId, e);
             throw new RuntimeException(e);
         }
     }
 
     public int getMessageCount(Long userId) {
         try {
-            String sql = "SELECT message_count FROM users WHERE user_id = ?";
-            var pstmt = conn.prepareStatement(sql);
+            var pstmt = conn.prepareStatement(DbQueries.GET_MSG_COUNT);
             pstmt.setLong(1, userId);
             var rs = pstmt.executeQuery();
             if (rs.next()) {
                 return rs.getInt("message_count");
             }
         } catch (SQLException e) {
+            logger.error("Failed to get message count for user: " + userId, e);
             throw new RuntimeException(e);
         }
         logger.info("No message count found for user: " + userId);
@@ -70,22 +81,21 @@ public class UsersRepository {
 
     public void updateUserMessageCount(Long userId, int messageCount, long lastMessage) {
         try {
-            String sql = "UPDATE users SET message_count = ?, last_message = ? WHERE user_id = ?";
-            var pstmt = conn.prepareStatement(sql);
+            var pstmt = conn.prepareStatement(DbQueries.UPDATE_USR_MSG_COUNT);
             pstmt.setInt(1, messageCount);
             pstmt.setLong(2, lastMessage);
             pstmt.setLong(3, userId);
             pstmt.executeUpdate();
             logger.trace("Updated user message count: " + userId);
         } catch (SQLException e) {
+            logger.error("Failed to update user message count: " + userId, e);
             throw new RuntimeException(e);
         }
     }
 
     public long getFirstMessage(Long userId) {
         try {
-            String sql = "SELECT first_message FROM users WHERE user_id = ?";
-            var pstmt = conn.prepareStatement(sql);
+            var pstmt = conn.prepareStatement(DbQueries.GET_FIRST_MSG);
             pstmt.setLong(1, userId);
             var rs = pstmt.executeQuery();
             if (rs.next()) {
@@ -101,8 +111,7 @@ public class UsersRepository {
 
     public long getLastMessage(Long userId) {
         try {
-            String sql = "SELECT last_message FROM users WHERE user_id = ?";
-            var pstmt = conn.prepareStatement(sql);
+            var pstmt = conn.prepareStatement(DbQueries.GET_LAST_MSG);
             pstmt.setLong(1, userId);
             var rs = pstmt.executeQuery();
             if (rs.next()) {

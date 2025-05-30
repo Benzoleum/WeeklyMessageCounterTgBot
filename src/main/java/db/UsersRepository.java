@@ -52,7 +52,7 @@ public class UsersRepository {
             var pstmt = conn.prepareStatement(DbQueries.REGISTER_NEW_USER);
             pstmt.setLong(1, userId);
             pstmt.setString(2, username);
-            pstmt.setInt(3, 0);
+            pstmt.setInt(3, 1);
             pstmt.setLong(4, System.currentTimeMillis());
             pstmt.setLong(5, System.currentTimeMillis());
             pstmt.executeUpdate();

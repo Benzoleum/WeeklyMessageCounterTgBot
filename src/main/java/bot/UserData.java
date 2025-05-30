@@ -1,19 +1,48 @@
 package bot;
 
-import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.Setter;
 
-@AllArgsConstructor @Getter @Setter
+@Getter
+@Setter
 public class UserData {
     private Long id;
     private String username;
     private int messageCount;
     private long firstMessage;
     private long lastMessage;
+    private String nickname;
+
+    UserData(Long id, String username, int messageCount, long firstMessage, long lastMessage) {
+        this.id = id;
+        this.username = username;
+        this.messageCount = messageCount;
+        this.firstMessage = firstMessage;
+        this.lastMessage = lastMessage;
+        resolveNickname(username);
+    }
 
     public void incrementMessageCount() {
         messageCount++;
     }
+
+    public void resolveNickname(String username) {
+        if (username.equals("Ayan_A_B")) {
+            this.nickname = "Величайший";
+        }
+        if (username.equals("Timur996")) {
+            this.nickname = "Тимур";
+        }
+        if (username.equals("bfaiziev")) {
+            this.nickname = "Бахадур";
+        }
+        if (username.equals("V3034V")) {
+            this.nickname = "Володя";
+        }
+        if (username.equals("benzoleum")) {
+            this.nickname = "Лук";
+        }
+    }
+
 }
 

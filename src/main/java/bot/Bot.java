@@ -28,6 +28,7 @@ public class Bot extends TelegramLongPollingBot {
     private long chatId = 0;
     ConcurrentHashMap<Long, UserData> userCache = new ConcurrentHashMap<>();
     private final UsersRepository usersRepository = new UsersRepository();
+    private final long groupChatId = -1001464721367L;
 
 
     public Bot() {
@@ -57,6 +58,7 @@ public class Bot extends TelegramLongPollingBot {
 
     @Override
     public void onUpdateReceived(Update update) {
+        if (update.hasMessage() == false) {}
         var msg = update.getMessage();
         var user = msg.getFrom();
         Long userId = user.getId();
@@ -65,6 +67,7 @@ public class Bot extends TelegramLongPollingBot {
         // if chatId is not set yet, set it on the first update the bot receives
         if (chatId == 0) {
             chatId = update.getMessage().getChatId();
+            logger.info("Chat ID: {}", chatId);
             corpseOfTheWeekTaskRunner();
         }
 
@@ -77,6 +80,7 @@ public class Bot extends TelegramLongPollingBot {
             userData.incrementMessageCount();
             userData.setLastMessage(System.currentTimeMillis());// Increment the in-memory count
             logger.trace("Updated message count for user {}, messages in cache: {}, last message timestamp: {}", userId, userData.getMessageCount(), userData.getLastMessage());
+            logger.info(userData.getNickname() + " sent a message, message count: " + userData.getMessageCount());
         }
     }
 
@@ -92,7 +96,7 @@ public class Bot extends TelegramLongPollingBot {
                 // New user registration
                 logger.info("User {} is not registered in the DB or cache, registering user in cache and DB", username);
                 usersRepository.insertNewUser(id, username);
-                return new UserData(userId, username, 0, System.currentTimeMillis(), System.currentTimeMillis());
+                return new UserData(userId, username, 1, System.currentTimeMillis(), System.currentTimeMillis());
             }
         });
     }
@@ -145,12 +149,12 @@ public class Bot extends TelegramLongPollingBot {
                     max = userData.getMessageCount();
                     lostId = userData.getId();
                 }
-                sb.append(userData.getUsername()).append(" написал ").append(userData.getMessageCount()).append(" сообщений за неделю.\n");
+                sb.append(userData.getNickname()).append(" написал ").append(userData.getMessageCount()).append(" сообщений за неделю.\n");
             }
             message.setText(sb.toString());
             execute(message);
 
-            message.setText(userCache.get(lostId).getUsername() + " написал меньше всех. " + userCache.get(lostId).getUsername() + "- труп недели. Поздравляю.");
+            message.setText(userCache.get(lostId).getNickname() + " написал меньше всех. " + userCache.get(lostId).getNickname() + "- труп недели. Поздравляю.");
             execute(message);
             resetUserData();
         } catch (TelegramApiException e) {

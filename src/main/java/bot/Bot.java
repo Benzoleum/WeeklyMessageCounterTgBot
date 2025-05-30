@@ -37,14 +37,21 @@ public class Bot extends TelegramLongPollingBot {
     }
 
     private void loadConfig() {
-        Yaml yaml = new Yaml();
-        try (InputStream inputStream = getClass().getClassLoader().getResourceAsStream("config.yaml")) {
-            Map<String, Map<String, String>> config = yaml.load(inputStream);
-            botToken = config.get("config").get("bot-token"); // Fetch the bot token
-            botUsername = config.get("config").get("bot-name"); // Fetch the bot name
-        } catch (Exception e) {
-            logger.error("Failed to load configuration file", e);
-            throw new RuntimeException(e);
+        botToken = System.getenv("WEEKLY_MSG_COUNTER_TG_BOT_TOKEN");
+        botUsername = System.getenv("WEEKLY_MSG_COUNTER_TG_BOT_NAME");
+        if ((!botToken.isEmpty() && botToken != null) && (!botUsername.isEmpty() && botUsername != null)) {
+            logger.info("Env variables set for bot token and bot name, loading from env variables");
+        } else {
+            logger.info("No evn variable set for bot token or bot name, loading from config file");
+            Yaml yaml = new Yaml();
+            try (InputStream inputStream = getClass().getClassLoader().getResourceAsStream("config.yaml")) {
+                Map<String, Map<String, String>> config = yaml.load(inputStream);
+                botToken = config.get("config").get("bot-token"); // Fetch the bot token
+                botUsername = config.get("config").get("bot-name"); // Fetch the bot name
+            } catch (Exception e) {
+                logger.error("Failed to load configuration file", e);
+                throw new RuntimeException(e);
+            }
         }
     }
 
@@ -55,19 +62,21 @@ public class Bot extends TelegramLongPollingBot {
         Long userId = user.getId();
         String username = user.getUserName();
 
+        // if chatId is not set yet, set it on the first update the bot receives
         if (chatId == 0) {
             chatId = update.getMessage().getChatId();
-            dateTimeCheckerScheduler();
+            corpseOfTheWeekTaskRunner();
         }
+
+        // if the user is not in the cache, add them to the cache
         if (!userCache.containsKey(update.getMessage().getFrom().getId())) {
             updateUserCache(userId, username);
         } else {
-            // Update the user's message count in the cache
+            // if the user is already in the cache, update the user's message count
             UserData userData = userCache.get(userId);
             userData.incrementMessageCount();
             userData.setLastMessage(System.currentTimeMillis());// Increment the in-memory count
-            logger.debug("Updated message count for user {}, messages in cache: {}, last message timestamp: {}", userId, userData.getMessageCount(), userData.getLastMessage());
-
+            logger.trace("Updated message count for user {}, messages in cache: {}, last message timestamp: {}", userId, userData.getMessageCount(), userData.getLastMessage());
         }
     }
 
@@ -76,10 +85,12 @@ public class Bot extends TelegramLongPollingBot {
         userCache.computeIfAbsent(userId, id -> {
             // If not in cache, load user data from DB
             if (usersRepository.isUserRegistered(id)) {
+                logger.info("User {} is registered in the DB, updating cache", username);
                 int messageCount = usersRepository.getMessageCount(id);
                 return new UserData(userId, username, messageCount, usersRepository.getFirstMessage(userId), System.currentTimeMillis());
             } else {
                 // New user registration
+                logger.info("User {} is not registered in the DB or cache, registering user in cache and DB", username);
                 usersRepository.insertNewUser(id, username);
                 return new UserData(userId, username, 0, System.currentTimeMillis(), System.currentTimeMillis());
             }
@@ -99,73 +110,71 @@ public class Bot extends TelegramLongPollingBot {
 
     private void scheduleDatabaseSync() {
         Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(() -> {
-            logger.info("Starting database synchronization...");
+            logger.info("Starting database synchronization with user cache");
             userCache.forEach((userId, userData) -> {
                 usersRepository.updateUserMessageCount(userId, userData.getMessageCount(), userData.getLastMessage());
-                logger.debug("Synchronized user {} with message count {}", userId, userData.getMessageCount());
+                logger.debug("Synchronized user {} with message count {} in the DB", userId, userData.getMessageCount());
             });
         }, 0, 5, TimeUnit.MINUTES); // Sync every 5 minutes
     }
 
-    private void resetAllData() {
+    private void resetUserData() {
+        logger.info("Resetting all user data");
         for (UserData userData : userCache.values()) {
             userData.setMessageCount(0);
             userData.setFirstMessage(0);
             userData.setLastMessage(0);
         }
+        logger.info("All user message data reset");
     }
 
-    public void dateTimeCheckerScheduler() {
+    private void corpseOfTheWeekSelector() {
+        logger.info("Starting corpse of the week task");
+        try {
+            SendMessage message = new SendMessage();
+            message.setChatId(chatId);
+            message.setText("В Лондоне Воскресенье 16:00. Выбираю трупа...");
+            execute(message);
+            StringBuilder sb = new StringBuilder();
+
+            int max = Integer.MAX_VALUE;
+            long lostId = 0;
+
+            for (UserData userData : userCache.values()) {
+                if (userData.getMessageCount() < max) {
+                    max = userData.getMessageCount();
+                    lostId = userData.getId();
+                }
+                sb.append(userData.getUsername()).append(" написал ").append(userData.getMessageCount()).append(" сообщений за неделю.\n");
+            }
+            message.setText(sb.toString());
+            execute(message);
+
+            message.setText(userCache.get(lostId).getUsername() + " написал меньше всех. " + userCache.get(lostId).getUsername() + "- труп недели. Поздравляю.");
+            execute(message);
+            resetUserData();
+        } catch (TelegramApiException e) {
+            logger.error("Failed to send the message to chat", e);
+            throw new RuntimeException(e);
+        }
+    }
+
+    public void corpseOfTheWeekTaskRunner() {
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
         // Scheduling a repeating task
         Runnable task = () -> {
-            LocalDateTime now = LocalDateTime.now();
-            DayOfWeek today = now.getDayOfWeek();
-
-            // Run task logic for Sunday at 23:59
-            try {
-                SendMessage message = new SendMessage();
-                message.setChatId(chatId);
-                message.setText("В Лондоне Воскресенье 23:59. Выбираем трупа...");
-                execute(message);
-                StringBuilder sb = new StringBuilder();
-
-                int max = Integer.MAX_VALUE;
-                long lostId = 0;
-
-                for (UserData userData : userCache.values()) {
-                    if (userData.getMessageCount() < max) {
-                        max = userData.getMessageCount();
-                        lostId = userData.getId();
-                    }
-                    sb.append(userData.getUsername()).append(" написал ").append(userData.getMessageCount()).append(" сообщений за неделю.\n");
-                }
-                message.setText(sb.toString());
-                execute(message);
-                message.setText(userCache.get(lostId).getUsername() + " написал меньше всех. " + userCache.get(lostId).getUsername() + "- труп недели. Поздравляем.");
-                execute(message);
-                resetAllData();
-                logger.info("All user message counts refreshed");
-            } catch (TelegramApiException e) {
-                logger.error("Failed to send the message to chat", e);
-                throw new RuntimeException(e);
-            }
+            corpseOfTheWeekSelector();
         };
 
         long initialDelay = getDelayUntilNextSundayMidnight(); // Calculate delay
         scheduler.schedule(task, initialDelay, TimeUnit.MILLISECONDS);
-        logger.debug("Task scheduled for execution after {} ms", initialDelay);
+        logger.debug("Task scheduled for execution in {} ms", initialDelay);
     }
 
     private static long getDelayUntilNextSundayMidnight() {
         LocalDateTime now = LocalDateTime.now();
-        LocalDateTime nextSundayMidnight = now.with(TemporalAdjusters.nextOrSame(DayOfWeek.THURSDAY))
-                .withHour(23)
-                .withMinute(07)
-                .withSecond(0)
-                .withNano(0);
+        LocalDateTime nextSundayMidnight = now.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY)).withHour(16).withMinute(0).withSecond(0).withNano(0);
         return Duration.between(now, nextSundayMidnight).toMillis();
     }
-
 }

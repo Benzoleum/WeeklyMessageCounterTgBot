@@ -78,11 +78,11 @@ public class Bot extends TelegramLongPollingBot {
                 // if the user is already in the cache, update the user's message count
                 UserData userData = userCache.get(userId);
                 userData.incrementMessageCount();
-                logger.trace("Updated message count for user {}, messages in cache: {}, last message timestamp: {}", userId, userData.getMessageCount());
-                logger.info(userData.getNickname() + " sent a message, message count: " + userData.getMessageCount());
+                logger.trace("Updated message count for user {}, messages in cache: {}", userId, userData.getMessageCount());
             }
         } else {
             logger.info("Received an update without a message");
+            logger.debug("Update: {}", update);
         }
     }
 
@@ -179,7 +179,7 @@ public class Bot extends TelegramLongPollingBot {
 
     private static long getDelayUntilNextSundayMidnight() {
         LocalDateTime now = LocalDateTime.now();
-        LocalDateTime nextSundayMidnight = now.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY)).withHour(16).withMinute(0).withSecond(0).withNano(0);
+        LocalDateTime nextSundayMidnight = now.with(TemporalAdjusters.nextOrSame(DayOfWeek.SATURDAY)).withHour(23).withMinute(0).withSecond(0).withNano(0);
         return Duration.between(now, nextSundayMidnight).toMillis();
     }
 }

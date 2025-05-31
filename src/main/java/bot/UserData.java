@@ -25,18 +25,16 @@ public class UserData {
     public void resolveNickname(String username) {
         if (username.equals("Ayan_A_B")) {
             this.nickname = "Величайший";
-        }
-        if (username.equals("Timur996")) {
+        } else if (username.equals("Timur996")) {
             this.nickname = "Тимур";
-        }
-        if (username.equals("bfaiziev")) {
+        } else if (username.equals("bfaiziev")) {
             this.nickname = "Бахадур";
-        }
-        if (username.equals("V3034V")) {
+        } else if (username.equals("V3034V")) {
             this.nickname = "Володя";
-        }
-        if (username.equals("benzoleum")) {
+        } else if (username.equals("benzoleum")) {
             this.nickname = "Лук";
+        } else {
+            this.nickname = "not_recognized";
         }
     }
 

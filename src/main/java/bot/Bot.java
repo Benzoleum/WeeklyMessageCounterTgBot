@@ -40,7 +40,7 @@ public class Bot extends TelegramLongPollingBot {
     private void loadConfig() {
         botToken = System.getenv("WEEKLY_MSG_COUNTER_TG_BOT_TOKEN");
         botUsername = System.getenv("WEEKLY_MSG_COUNTER_TG_BOT_NAME");
-        if ((!botToken.isEmpty() && botToken != null) && (!botUsername.isEmpty() && botUsername != null)) {
+        if ((botToken != null && !botToken.isEmpty()) && (botUsername != null && !botUsername.isEmpty())) {
             logger.info("Env variables set for bot token and bot name, loading from env variables");
         } else {
             logger.info("No evn variable set for bot token or bot name, loading from config file");
@@ -58,29 +58,31 @@ public class Bot extends TelegramLongPollingBot {
 
     @Override
     public void onUpdateReceived(Update update) {
-        if (update.hasMessage() == false) {}
-        var msg = update.getMessage();
-        var user = msg.getFrom();
-        Long userId = user.getId();
-        String username = user.getUserName();
+        if (update.hasMessage()) {
+            var msg = update.getMessage();
+            var user = msg.getFrom();
+            Long userId = user.getId();
+            String username = user.getUserName();
 
-        // if chatId is not set yet, set it on the first update the bot receives
-        if (chatId == 0) {
-            chatId = update.getMessage().getChatId();
-            logger.info("Chat ID: {}", chatId);
-            corpseOfTheWeekTaskRunner();
-        }
+            // if chatId is not set yet, set it on the first update the bot receives
+            if (chatId == 0) {
+                chatId = update.getMessage().getChatId();
+                logger.info("Chat ID: {}", chatId);
+                corpseOfTheWeekTaskRunner();
+            }
 
-        // if the user is not in the cache, add them to the cache
-        if (!userCache.containsKey(update.getMessage().getFrom().getId())) {
-            updateUserCache(userId, username);
+            // if the user is not in the cache, add them to the cache
+            if (!userCache.containsKey(update.getMessage().getFrom().getId())) {
+                updateUserCache(userId, username);
+            } else {
+                // if the user is already in the cache, update the user's message count
+                UserData userData = userCache.get(userId);
+                userData.incrementMessageCount();
+                logger.trace("Updated message count for user {}, messages in cache: {}, last message timestamp: {}", userId, userData.getMessageCount());
+                logger.info(userData.getNickname() + " sent a message, message count: " + userData.getMessageCount());
+            }
         } else {
-            // if the user is already in the cache, update the user's message count
-            UserData userData = userCache.get(userId);
-            userData.incrementMessageCount();
-            userData.setLastMessage(System.currentTimeMillis());// Increment the in-memory count
-            logger.trace("Updated message count for user {}, messages in cache: {}, last message timestamp: {}", userId, userData.getMessageCount(), userData.getLastMessage());
-            logger.info(userData.getNickname() + " sent a message, message count: " + userData.getMessageCount());
+            logger.info("Received an update without a message");
         }
     }
 
@@ -91,12 +93,13 @@ public class Bot extends TelegramLongPollingBot {
             if (usersRepository.isUserRegistered(id)) {
                 logger.info("User {} is registered in the DB, updating cache", username);
                 int messageCount = usersRepository.getMessageCount(id);
-                return new UserData(userId, username, messageCount, usersRepository.getFirstMessage(userId), System.currentTimeMillis());
+                return new UserData(userId, username, messageCount);
             } else {
                 // New user registration
                 logger.info("User {} is not registered in the DB or cache, registering user in cache and DB", username);
-                usersRepository.insertNewUser(id, username);
-                return new UserData(userId, username, 1, System.currentTimeMillis(), System.currentTimeMillis());
+                UserData userData = new UserData(userId, username, 1);
+                usersRepository.insertNewUser(id, username, userData.getNickname());
+                return userData;
             }
         });
     }
@@ -116,7 +119,7 @@ public class Bot extends TelegramLongPollingBot {
         Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(() -> {
             logger.info("Starting database synchronization with user cache");
             userCache.forEach((userId, userData) -> {
-                usersRepository.updateUserMessageCount(userId, userData.getMessageCount(), userData.getLastMessage());
+                usersRepository.updateUserMessageCount(userId, userData.getMessageCount());
                 logger.debug("Synchronized user {} with message count {} in the DB", userId, userData.getMessageCount());
             });
         }, 0, 5, TimeUnit.MINUTES); // Sync every 5 minutes
@@ -126,8 +129,6 @@ public class Bot extends TelegramLongPollingBot {
         logger.info("Resetting all user data");
         for (UserData userData : userCache.values()) {
             userData.setMessageCount(0);
-            userData.setFirstMessage(0);
-            userData.setLastMessage(0);
         }
         logger.info("All user message data reset");
     }

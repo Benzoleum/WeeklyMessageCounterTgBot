@@ -9,16 +9,12 @@ public class UserData {
     private Long id;
     private String username;
     private int messageCount;
-    private long firstMessage;
-    private long lastMessage;
     private String nickname;
 
-    UserData(Long id, String username, int messageCount, long firstMessage, long lastMessage) {
+    UserData(Long id, String username, int messageCount) {
         this.id = id;
         this.username = username;
         this.messageCount = messageCount;
-        this.firstMessage = firstMessage;
-        this.lastMessage = lastMessage;
         resolveNickname(username);
     }
 

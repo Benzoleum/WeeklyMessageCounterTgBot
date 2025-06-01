@@ -10,9 +10,9 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.Map;
 
-public class UsersRepository {
-    Connection conn;
-    private static final Logger logger = LoggerFactory.getLogger(UsersRepository.class);
+public class UserRepository {
+    public static Connection conn;
+    private static final Logger logger = LoggerFactory.getLogger(UserRepository.class);
 
     public void initialiseDbConnection() {
         Yaml yaml = new Yaml();

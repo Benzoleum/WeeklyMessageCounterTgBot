@@ -10,9 +10,9 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.Map;
 
-public class UsersRepository {
-    Connection conn;
-    private static final Logger logger = LoggerFactory.getLogger(UsersRepository.class);
+public class UserRepository {
+    public static Connection conn;
+    private static final Logger logger = LoggerFactory.getLogger(UserRepository.class);
 
     public void initialiseDbConnection() {
         Yaml yaml = new Yaml();
@@ -47,14 +47,13 @@ public class UsersRepository {
         }
     }
 
-    public void insertNewUser(Long userId, String username) {
+    public void insertNewUser(Long userId, String username, String nickname) {
         try {
             var pstmt = conn.prepareStatement(DbQueries.REGISTER_NEW_USER);
             pstmt.setLong(1, userId);
             pstmt.setString(2, username);
-            pstmt.setInt(3, 0);
-            pstmt.setLong(4, System.currentTimeMillis());
-            pstmt.setLong(5, System.currentTimeMillis());
+            pstmt.setInt(3, 1);
+            pstmt.setString(4, nickname);
             pstmt.executeUpdate();
             logger.info("Inserted new user: " + userId);
         } catch (SQLException e) {
@@ -79,12 +78,11 @@ public class UsersRepository {
         return 0;
     }
 
-    public void updateUserMessageCount(Long userId, int messageCount, long lastMessage) {
+    public void updateUserMessageCount(Long userId, int messageCount) {
         try {
             var pstmt = conn.prepareStatement(DbQueries.UPDATE_USR_MSG_COUNT);
             pstmt.setInt(1, messageCount);
-            pstmt.setLong(2, lastMessage);
-            pstmt.setLong(3, userId);
+            pstmt.setLong(2, userId);
             pstmt.executeUpdate();
             logger.trace("Updated user message count: " + userId);
         } catch (SQLException e) {
@@ -93,35 +91,4 @@ public class UsersRepository {
         }
     }
 
-    public long getFirstMessage(Long userId) {
-        try {
-            var pstmt = conn.prepareStatement(DbQueries.GET_FIRST_MSG);
-            pstmt.setLong(1, userId);
-            var rs = pstmt.executeQuery();
-            if (rs.next()) {
-                return rs.getLong("first_message");
-            }
-        } catch (SQLException e) {
-            logger.error("Failed to get first message for user: " + userId, e);
-            throw new RuntimeException(e);
-        }
-        logger.info("No first message found for user: " + userId);
-        return 0;
-    }
-
-    public long getLastMessage(Long userId) {
-        try {
-            var pstmt = conn.prepareStatement(DbQueries.GET_LAST_MSG);
-            pstmt.setLong(1, userId);
-            var rs = pstmt.executeQuery();
-            if (rs.next()) {
-                return rs.getLong("last_message");
-            }
-        } catch (SQLException e) {
-            logger.error("Failed to get last message for user: " + userId, e);
-            throw new RuntimeException(e);
-        }
-        logger.info("No last message found for user: " + userId);
-        return 0;
-    }
 }

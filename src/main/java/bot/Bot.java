@@ -30,12 +30,15 @@ public class Bot extends TelegramLongPollingBot {
     private final UserRepository userRepository = new UserRepository();
     private long shashlChatId;
     private long testChatId;
+    private LocalDateTime now = LocalDateTime.now();
 
 
     public Bot() {
         loadConfig();
         userRepository.initialiseDbConnection();
         scheduleDatabaseSync();
+        corpseOfTheWeekTaskRunner();
+        taskTimeLogger();
     }
 
     private void loadConfig() {
@@ -54,7 +57,7 @@ public class Bot extends TelegramLongPollingBot {
         if ((botToken != null && !botToken.isEmpty()) && (botUsername != null && !botUsername.isEmpty())) {
             logger.info("Env variables set for bot token and bot name, loading from env variables");
         } else {
-            logger.info("No evn variable set for bot token or bot name, loading from config file");
+            logger.info("No env variable set for bot token or bot name, loading from config file");
             botToken = config.get("config").get("bot-token"); // Fetch the bot token
             botUsername = config.get("config").get("bot-name"); // Fetch the bot name
 
@@ -64,8 +67,8 @@ public class Bot extends TelegramLongPollingBot {
     @Override
     public void onUpdateReceived(Update update) {
         if (update != null) {
-            if (update.getMessage().getChatId() == shashlChatId || update.getMessage().getChatId() == testChatId) {
-                if (update.hasMessage()) {
+            if (update.hasMessage()) {
+                if (update.getMessage().getChatId() == shashlChatId || update.getMessage().getChatId() == testChatId) {
                     var msg = update.getMessage();
                     var user = msg.getFrom();
                     Long userId = user.getId();
@@ -75,8 +78,6 @@ public class Bot extends TelegramLongPollingBot {
                     if (chatId == 0) {
                         chatId = update.getMessage().getChatId();
                         logger.info("Chat ID: {}", chatId);
-                        corpseOfTheWeekTaskRunner();
-                        taskTimeLogger();
                     }
 
                     // if the user is not in the cache, add them to the cache
@@ -88,23 +89,24 @@ public class Bot extends TelegramLongPollingBot {
                         userData.incrementMessageCount();
                         logger.trace("Updated message count for user {}, messages in cache: {}", userId, userData.getMessageCount());
                     }
+
                 } else {
-                    logger.info("Received an update without a message");
-                    logger.debug("Update: {}", update);
+                    logger.info("Received an update from an unknown chat");
+                    logger.info("Chat ID: {}", update.getMessage().getChatId());
+                    logger.info("Chat title: {}", update.getMessage().getChat().getTitle());
+                    logger.info("Msg from: {}", update.getMessage().getFrom());
+                    SendMessage message = new SendMessage();
+                    message.setChatId(update.getMessage().getChatId());
+                    message.setText("Sorry, the functionality of this bot is restricted to certain chats at the moment. Please try again later.");
+                    try {
+                        execute(message);
+                    } catch (TelegramApiException e) {
+                        throw new RuntimeException(e);
+                    }
                 }
             } else {
-                logger.info("Received an update from an unknown chat");
-                logger.info("Chat ID: {}", update.getMessage().getChatId());
-                logger.info("Chat title: {}", update.getMessage().getChat().getTitle());
-                logger.info("Msg from: {}", update.getMessage().getFrom());
-                SendMessage message = new SendMessage();
-                message.setChatId(update.getMessage().getChatId());
-                message.setText("Sorry, the functionality of this bot is restricted to certain chats at the moment. Please try again later.");
-                try {
-                    execute(message);
-                } catch (TelegramApiException e) {
-                    throw new RuntimeException(e);
-                }
+                logger.info("Received an update without a message, most likely an edit");
+                logger.trace("Update: {}", update);
             }
         } else {
             logger.info("Received an update with null value");
@@ -116,8 +118,8 @@ public class Bot extends TelegramLongPollingBot {
         userCache.computeIfAbsent(userId, id -> {
             // If not in cache, load user data from DB
             if (userRepository.isUserRegistered(id)) {
-                logger.info("User {} is registered in the DB, updating cache", username);
                 int messageCount = userRepository.getMessageCount(id);
+                logger.info("User {} is registered in the DB, updating cache with {} messages", username, messageCount);
                 return new UserData(userId, username, messageCount);
             } else {
                 // New user registration
@@ -141,21 +143,24 @@ public class Bot extends TelegramLongPollingBot {
     }
 
     private void scheduleDatabaseSync() {
+        int taskInterval = 5;
+        logger.info("Scheduling database sync task to run every {} minutes", taskInterval);
         Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(() -> {
-            logger.info("Starting database synchronization with user cache");
+            logger.debug("Starting database sync task");
             userCache.forEach((userId, userData) -> {
                 userRepository.updateUserMessageCount(userId, userData.getMessageCount());
-                logger.debug("Synchronized user {} with message count {} in the DB", userId, userData.getMessageCount());
+                logger.debug("Synchronized user {} from cache. Message count {}", userData.getUsername(), userData.getMessageCount());
             });
-        }, 0, 5, TimeUnit.MINUTES); // Sync every 5 minutes
+        }, 0, taskInterval, TimeUnit.MINUTES); // Sync every 5 minutes
     }
 
     private void resetUserData() {
-        logger.info("Resetting all user data");
+        logger.info("Resetting message counts");
         for (UserData userData : userCache.values()) {
             userData.setMessageCount(0);
+            logger.debug("{} message count reset to 0", userData.getUsername());
         }
-        logger.info("All user message data reset");
+        logger.info("All user message count data reset");
     }
 
     private void corpseOfTheWeekSelector() {
@@ -163,7 +168,7 @@ public class Bot extends TelegramLongPollingBot {
         try {
             SendMessage message = new SendMessage();
             message.setChatId(chatId);
-            message.setText("В Лондоне Воскресенье 16:00. Выбираю трупа...");
+            message.setText("В Лондоне Воскресенье 10:00. Выбираю трупа...");
             execute(message);
             StringBuilder sb = new StringBuilder();
 
@@ -197,23 +202,23 @@ public class Bot extends TelegramLongPollingBot {
             corpseOfTheWeekSelector();
         };
 
-        long initialDelay = getDelayUntilNextSundayMidnight(); // Calculate delay
-        scheduler.schedule(task, initialDelay, TimeUnit.MILLISECONDS);
+        logger.info("Current time is {}, {}:{}", now.getDayOfWeek(), now.getHour(), now.getMinute());
+        long initialDelay = getDelayUntilNextTask(); // Calculate delay
+        scheduler.scheduleAtFixedRate(task, initialDelay, TimeUnit.DAYS.toMillis(7), TimeUnit.MILLISECONDS);
+        long timeToNextTask = initialDelay + TimeUnit.DAYS.toMillis(7);
+        logger.info("The next task will be scheduled to run in {} days", TimeUnit.MILLISECONDS.toDays(timeToNextTask));
     }
 
     private void taskTimeLogger() {
         Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(() -> {
-            if (TimeUnit.MILLISECONDS.toDays(getDelayUntilNextSundayMidnight()) > 0) {
-                logger.info("The corpse selector task is scheduled to run in {} days", TimeUnit.MILLISECONDS.toDays(getDelayUntilNextSundayMidnight()));
-            } else {
-                logger.info("The corpse selector task is scheduled to run in {} hours", TimeUnit.MILLISECONDS.toHours(getDelayUntilNextSundayMidnight()));
-            }
+            getDelayUntilNextTask();
         }, 0, 1, TimeUnit.HOURS);
     }
 
-    private static long getDelayUntilNextSundayMidnight() {
-        LocalDateTime now = LocalDateTime.now();
-        LocalDateTime nextSundayMidnight = now.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY)).withHour(10).withMinute(0).withSecond(0).withNano(0);
-        return Duration.between(now, nextSundayMidnight).toMillis();
+    private long getDelayUntilNextTask() {
+        LocalDateTime nextJobDelay = now.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY)).withHour(10).withMinute(0).withSecond(0).withNano(0);
+        long delay = Duration.between(now, nextJobDelay).toMillis();
+        logger.info("Corpse selector task is scheduled to run on {}, {} ms from now", now.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY)).withHour(10).withMinute(0).withSecond(0).withNano(0), delay);
+        return delay;
     }
 }

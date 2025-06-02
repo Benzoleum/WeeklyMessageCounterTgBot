@@ -63,47 +63,51 @@ public class Bot extends TelegramLongPollingBot {
 
     @Override
     public void onUpdateReceived(Update update) {
-        if (update.getMessage().getChatId() == shashlChatId || update.getMessage().getChatId() == testChatId) {
-            if (update.hasMessage()) {
-                var msg = update.getMessage();
-                var user = msg.getFrom();
-                Long userId = user.getId();
-                String username = user.getUserName();
+        if (update != null) {
+            if (update.getMessage().getChatId() == shashlChatId || update.getMessage().getChatId() == testChatId) {
+                if (update.hasMessage()) {
+                    var msg = update.getMessage();
+                    var user = msg.getFrom();
+                    Long userId = user.getId();
+                    String username = user.getUserName();
 
-                // if chatId is not set yet, set it on the first update the bot receives
-                if (chatId == 0) {
-                    chatId = update.getMessage().getChatId();
-                    logger.info("Chat ID: {}", chatId);
-                    corpseOfTheWeekTaskRunner();
-                    taskTimeLogger();
-                }
+                    // if chatId is not set yet, set it on the first update the bot receives
+                    if (chatId == 0) {
+                        chatId = update.getMessage().getChatId();
+                        logger.info("Chat ID: {}", chatId);
+                        corpseOfTheWeekTaskRunner();
+                        taskTimeLogger();
+                    }
 
-                // if the user is not in the cache, add them to the cache
-                if (!userCache.containsKey(update.getMessage().getFrom().getId())) {
-                    updateUserCache(userId, username);
+                    // if the user is not in the cache, add them to the cache
+                    if (!userCache.containsKey(update.getMessage().getFrom().getId())) {
+                        updateUserCache(userId, username);
+                    } else {
+                        // if the user is already in the cache, update the user's message count
+                        UserData userData = userCache.get(userId);
+                        userData.incrementMessageCount();
+                        logger.trace("Updated message count for user {}, messages in cache: {}", userId, userData.getMessageCount());
+                    }
                 } else {
-                    // if the user is already in the cache, update the user's message count
-                    UserData userData = userCache.get(userId);
-                    userData.incrementMessageCount();
-                    logger.trace("Updated message count for user {}, messages in cache: {}", userId, userData.getMessageCount());
+                    logger.info("Received an update without a message");
+                    logger.debug("Update: {}", update);
                 }
             } else {
-                logger.info("Received an update without a message");
-                logger.debug("Update: {}", update);
+                logger.info("Received an update from an unknown chat");
+                logger.info("Chat ID: {}", update.getMessage().getChatId());
+                logger.info("Chat title: {}", update.getMessage().getChat().getTitle());
+                logger.info("Msg from: {}", update.getMessage().getFrom());
+                SendMessage message = new SendMessage();
+                message.setChatId(update.getMessage().getChatId());
+                message.setText("Sorry, the functionality of this bot is restricted to certain chats at the moment. Please try again later.");
+                try {
+                    execute(message);
+                } catch (TelegramApiException e) {
+                    throw new RuntimeException(e);
+                }
             }
         } else {
-            logger.info("Received an update from an unknown chat");
-            logger.info("Chat ID: {}", update.getMessage().getChatId());
-            logger.info("Chat title: {}", update.getMessage().getChat().getTitle());
-            logger.info("Msg from: {}", update.getMessage().getFrom());
-            SendMessage message = new SendMessage();
-            message.setChatId(update.getMessage().getChatId());
-            message.setText("Sorry, the functionality of this bot is restricted to certain chats at the moment. Please try again later.");
-            try {
-                execute(message);
-            } catch (TelegramApiException e) {
-                throw new RuntimeException(e);
-            }
+            logger.info("Received an update with null value");
         }
     }
 
@@ -209,7 +213,7 @@ public class Bot extends TelegramLongPollingBot {
 
     private static long getDelayUntilNextSundayMidnight() {
         LocalDateTime now = LocalDateTime.now();
-        LocalDateTime nextSundayMidnight = now.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY)).withHour(19).withMinute(0).withSecond(0).withNano(0);
+        LocalDateTime nextSundayMidnight = now.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY)).withHour(10).withMinute(0).withSecond(0).withNano(0);
         return Duration.between(now, nextSundayMidnight).toMillis();
     }
 }
